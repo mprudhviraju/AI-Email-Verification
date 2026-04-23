@@ -1,0 +1,221 @@
+# ── AI Email Verification — GraphQL Schema ────────────────────────────────────
+
+# ── Scalars & Enums ───────────────────────────────────────────────────────────
+
+enum EmailVerificationStatus {
+  VALID
+  RISKY
+  INVALID
+  UNKNOWN
+  CATCH_ALL
+  DISPOSABLE
+  ROLE_BASED
+}
+
+enum VerificationConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BatchStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+type User {
+  id:        ID!
+  email:     String!
+  createdAt: String!
+}
+
+type AuthPayload {
+  token: String!
+  user:  User!
+}
+
+# ── API Keys ──────────────────────────────────────────────────────────────────
+
+"""
+A programmatic API key for authenticating requests without a JWT.
+Send as the `X-API-Key` header. Daily usage is capped at `dailyLimit`.
+"""
+type ApiKey {
+  id:         ID!
+  name:       String!
+  """First 8 characters of the key — safe to display, not usable alone."""
+  keyPrefix:  String!
+  dailyLimit: Int!
+  isActive:   Boolean!
+  createdAt:  String!
+  lastUsedAt: String
+}
+
+"""Returned once on key creation. `key` is the raw key — store it securely."""
+type CreateApiKeyPayload {
+  """The raw API key. Shown ONCE and never retrievable again."""
+  key:    String!
+  apiKey: ApiKey!
+}
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+
+type Job {
+  id:        ID!
+  status:    JobStatus!
+  error:     String
+  createdAt: String!
+  updatedAt: String!
+}
+
+# ── Email Verification ────────────────────────────────────────────────────────
+
+type EmailVerificationResult {
+  id:            ID!
+  batchId:       ID!
+  email:         String!
+  domain:        String!
+
+  # Tier 1 — Syntax
+  syntaxValid:   Boolean!
+  isDisposable:  Boolean!
+  isRoleBased:   Boolean!
+  isUnicode:     Boolean!
+  isHoneypot:    Boolean!
+
+  # Tier 2 — DNS
+  mxFound:       Boolean!
+  mxHost:        String
+  mxFallback:    Boolean!
+  dnsTtl:        Int
+  dnsResponseMs: Int
+
+  # Tier 3 — SMTP
+  smtpReachable: Boolean!
+  smtpCode:      Int
+  smtpMessage:   String
+  isCatchAll:    Boolean!
+
+  # Tier 4 — Enrichment (Gravatar + HIBP)
+  gravatarFound:   Boolean!
+  hibpBreachCount: Int!
+
+  # Score
+  status:        EmailVerificationStatus!
+  score:         Int!
+  confidence:    VerificationConfidence!
+
+  verifiedAt:    String!
+  responseTimeMs: Int
+  errorMessage:  String
+}
+
+type EmailVerificationBatch {
+  id:             ID!
+  label:          String!
+  status:         BatchStatus!
+  currentStage:   String
+  totalCount:     Int!
+  completedCount: Int!
+  validCount:     Int!
+  invalidCount:   Int!
+  riskyCount:     Int!
+  unknownCount:   Int!
+
+  # Per-stage progress counters
+  syntaxDone:      Int!
+  dnsDone:         Int!
+  smtpDone:        Int!
+  enrichmentDone:  Int!
+
+  createdAt:      String!
+  completedAt:    String
+  jobId:          ID
+  results:        [EmailVerificationResult!]!
+
+  # Computed percentage fields
+  validPct:       Float!
+  invalidPct:     Float!
+  riskyPct:       Float!
+  unknownPct:     Float!
+}
+
+type EmailVerificationResultsPage {
+  results:    [EmailVerificationResult!]!
+  total:      Int!
+  # B7 — set when paginating via `cursor`. Pass back as `cursor` on the next
+  # call to continue the scan. Null when there are no more rows.
+  nextCursor: ID
+  hasMore:    Boolean!
+}
+
+# ── Root types ────────────────────────────────────────────────────────────────
+
+type Query {
+  me: User
+
+  """List all API keys belonging to the authenticated user."""
+  myApiKeys: [ApiKey!]!
+
+  emailVerificationBatches(
+    limit:  Int
+    offset: Int
+  ): [EmailVerificationBatch!]!
+
+  emailVerificationBatch(id: ID!): EmailVerificationBatch
+
+  emailVerificationResults(
+    batchId: ID!
+    status:  EmailVerificationStatus
+    search:  String
+    limit:   Int
+    # Use EITHER `offset` (legacy) OR `cursor` (B7 keyset). If `cursor` is
+    # supplied it takes precedence and `total` is NOT computed (saves the
+    # COUNT(*) round-trip on deep pages where you don't need a page total).
+    offset:  Int
+    cursor:  ID
+  ): EmailVerificationResultsPage!
+}
+
+type Mutation {
+  # Auth
+  register(email: String!, password: String!): AuthPayload!
+  login(email: String!, password: String!):    AuthPayload!
+
+  # API Keys
+  """Create a new API key. Returns the raw key once — it cannot be retrieved again."""
+  createApiKey(name: String!, dailyLimit: Int): CreateApiKeyPayload!
+  """Deactivate an API key. It will immediately stop working."""
+  revokeApiKey(id: ID!): Boolean!
+
+  # Single email — runs inline, result in <15s
+  verifySingleEmail(email: String!): EmailVerificationResult!
+
+  # Bulk upload — accepts raw CSV/TXT content as a string
+  createVerificationBatch(
+    label:      String!
+    csvContent: String!
+  ): EmailVerificationBatch!
+
+  # Retry a failed or stuck batch
+  retryVerificationBatch(id: ID!): EmailVerificationBatch!
+
+  # Delete batch and all results
+  deleteVerificationBatch(id: ID!): Boolean!
+}
+
+type Subscription {
+  # Fires on every completed email during a batch run
+  jobUpdated(batchId: ID!): Job!
+}

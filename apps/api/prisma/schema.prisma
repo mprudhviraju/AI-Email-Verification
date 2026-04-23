@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum EmailVerificationStatus {
+  VALID
+  RISKY
+  INVALID
+  UNKNOWN
+  CATCH_ALL
+  DISPOSABLE
+  ROLE_BASED
+}
+
+enum VerificationConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BatchStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum JobType {
+  VERIFY_EMAIL_BATCH
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  batches   EmailVerificationBatch[]
+  apiKeys   ApiKey[]
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  /// SHA-256 hex of the raw key — never store the raw key in the DB
+  keyHash    String    @unique
+  /// First 8 chars of the raw key — safe to display, not enough to reconstruct
+  keyPrefix  String
+  dailyLimit Int       @default(1000)
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  type      JobType
+  status    JobStatus @default(PENDING)
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  batch     EmailVerificationBatch?
+}
+
+model EmailVerificationBatch {
+  id             String      @id @default(cuid())
+  userId         String?
+  label          String
+  status         BatchStatus @default(PENDING)
+  currentStage   String?     // e.g. "syntax" | "dns" | "smtp" | "enrichment" | "scoring"
+  totalCount     Int         @default(0)
+  completedCount Int         @default(0)
+  validCount     Int         @default(0)
+  invalidCount   Int         @default(0)
+  riskyCount     Int         @default(0)
+  unknownCount   Int         @default(0)
+
+  // Per-stage progress counters (Phase A)
+  syntaxDone      Int @default(0)
+  dnsDone         Int @default(0)
+  smtpDone        Int @default(0)
+  enrichmentDone  Int @default(0)
+  createdAt      DateTime    @default(now())
+  completedAt    DateTime?
+  jobId          String?     @unique
+
+  job     Job?  @relation(fields: [jobId], references: [id])
+  user    User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  results EmailVerificationResult[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model EmailVerificationResult {
+  id             String  @id @default(cuid())
+  batchId        String
+  email          String
+  domain         String
+
+  // Tier 1 — Syntax
+  syntaxValid    Boolean @default(false)
+  isDisposable   Boolean @default(false)
+  isRoleBased    Boolean @default(false)
+  isUnicode      Boolean @default(false)
+
+  // Tier 2 — DNS
+  mxFound        Boolean @default(false)
+  mxHost         String?
+  mxFallback     Boolean @default(false)
+  dnsTtl         Int?
+  dnsResponseMs  Int?
+
+  // Tier 3 — SMTP
+  smtpReachable  Boolean @default(false)
+  smtpCode       Int?
+  smtpMessage    String?
+  isCatchAll     Boolean @default(false)
+  isHoneypot     Boolean @default(false)
+
+  // Tier 4 — Enrichment (Gravatar + HIBP, used for catch-all domains)
+  gravatarFound   Boolean @default(false)
+  hibpBreachCount Int     @default(0)
+
+  // Tier 5 — Score
+  status         EmailVerificationStatus @default(UNKNOWN)
+  score          Int                     @default(0)
+  confidence     VerificationConfidence  @default(LOW)
+
+  verifiedAt     DateTime @default(now())
+  responseTimeMs Int?
+  errorMessage   String?
+
+  batch EmailVerificationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([email])
+  @@index([domain])
+  @@index([status])
+  @@index([verifiedAt])
+}

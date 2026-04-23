@@ -1,0 +1,87 @@
+# AI Email Verification — Docker Compose
+#
+# Services:
+#   postgres  — PostgreSQL 16
+#   redis     — Redis 7
+#   api       — Apollo GraphQL server (port 4001)
+#   worker    — BullMQ verification worker (D1 standalone entry point)
+#
+# Quick start:
+#   docker compose up --build -d
+#   # Scale workers horizontally:
+#   docker compose up --scale worker=4 -d
+#
+# The `api` service runs `prisma migrate deploy` before starting
+# the server so the DB schema is always current on first boot.
+
+version: '3.9'
+
+services:
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       email_verification
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout:  5s
+      retries:  12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout:  3s
+      retries:  12
+
+  # ── Application ───────────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context:    .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "4001:4001"
+    env_file: apps/api/.env.docker
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    # Run migrations on every start — idempotent, safe for single-replica deploys.
+    # For multi-replica, run migrations as a separate init container instead.
+    entrypoint: >
+      sh -c "
+        cd /app/apps/api &&
+        node_modules/.bin/prisma migrate deploy &&
+        node /app/apps/api/dist/index.js
+      "
+
+  worker:
+    build:
+      context:    .
+      dockerfile: apps/api/Dockerfile
+    env_file: apps/api/.env.docker
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    command: ["node", "apps/api/dist/worker.js"]
+    # Scale with: docker compose up --scale worker=N -d
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay:     5s
+        max_attempts: 5
+
+volumes:
+  pgdata:

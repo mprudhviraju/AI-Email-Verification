@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "EmailVerificationBatch" ADD COLUMN     "currentStage" TEXT,
+ADD COLUMN     "dnsDone" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "enrichmentDone" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "smtpDone" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "syntaxDone" INTEGER NOT NULL DEFAULT 0;

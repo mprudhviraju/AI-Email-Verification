@@ -1,0 +1,178 @@
+mutation VerifySingleEmail($email: String!) {
+  verifySingleEmail(email: $email) {
+    id
+    batchId
+    email
+    domain
+    syntaxValid
+    isDisposable
+    isRoleBased
+    isUnicode
+    isHoneypot
+    mxFound
+    mxHost
+    mxFallback
+    smtpReachable
+    smtpCode
+    smtpMessage
+    isCatchAll
+    gravatarFound
+    hibpBreachCount
+    status
+    score
+    confidence
+    verifiedAt
+    responseTimeMs
+    errorMessage
+  }
+}
+
+mutation CreateVerificationBatch($label: String!, $csvContent: String!) {
+  createVerificationBatch(label: $label, csvContent: $csvContent) {
+    id
+    label
+    status
+    totalCount
+    completedCount
+    validCount
+    invalidCount
+    riskyCount
+    unknownCount
+    createdAt
+    jobId
+  }
+}
+
+mutation RetryVerificationBatch($id: ID!) {
+  retryVerificationBatch(id: $id) {
+    id
+    status
+    completedCount
+    totalCount
+  }
+}
+
+mutation DeleteVerificationBatch($id: ID!) {
+  deleteVerificationBatch(id: $id)
+}
+
+query EmailVerificationBatches($limit: Int, $offset: Int) {
+  emailVerificationBatches(limit: $limit, offset: $offset) {
+    id
+    label
+    status
+    totalCount
+    completedCount
+    validCount
+    invalidCount
+    riskyCount
+    unknownCount
+    validPct
+    invalidPct
+    riskyPct
+    unknownPct
+    createdAt
+    completedAt
+  }
+}
+
+query EmailVerificationBatch($id: ID!) {
+  emailVerificationBatch(id: $id) {
+    id
+    label
+    status
+    currentStage
+    totalCount
+    completedCount
+    validCount
+    invalidCount
+    riskyCount
+    unknownCount
+    syntaxDone
+    dnsDone
+    smtpDone
+    enrichmentDone
+    validPct
+    invalidPct
+    riskyPct
+    unknownPct
+    createdAt
+    completedAt
+    jobId
+  }
+}
+
+query EmailVerificationResults(
+  $batchId: ID!
+  $status: EmailVerificationStatus
+  $search: String
+  $limit: Int
+  $offset: Int
+) {
+  emailVerificationResults(
+    batchId: $batchId
+    status: $status
+    search: $search
+    limit: $limit
+    offset: $offset
+  ) {
+    total
+    results {
+      id
+      email
+      domain
+      status
+      score
+      confidence
+      mxFound
+      mxHost
+      smtpReachable
+      smtpCode
+      isDisposable
+      isRoleBased
+      isCatchAll
+      gravatarFound
+      hibpBreachCount
+      isHoneypot
+      verifiedAt
+      responseTimeMs
+      errorMessage
+    }
+  }
+}
+
+query Me {
+  me {
+    id
+    email
+  }
+}
+
+mutation Register($email: String!, $password: String!) {
+  register(email: $email, password: $password) {
+    token
+    user {
+      id
+      email
+    }
+  }
+}
+
+mutation Login($email: String!, $password: String!) {
+  login(email: $email, password: $password) {
+    token
+    user {
+      id
+      email
+    }
+  }
+}
+
+subscription JobUpdated($batchId: ID!) {
+  jobUpdated(batchId: $batchId) {
+    id
+    status
+    error
+    updatedAt
+  }
+}

@@ -1,1 +1,7 @@
-node_modules
+# Common things to ignore
+node_modules/
+.env
+.env.local
+*.log
+dist/
+.DS_Store
